@@ -142,7 +142,7 @@ def remove_empty_dirs(path):
     for content in path:
         if content.is_dir() is True and len(list(content.iterdir())) > 0:
             remove_empty_dirs(content.iterdir())
-        elif content.is_dir() is True and len(list(content.iterdir())) == 0:
+        if content.is_dir() is True and len(list(content.iterdir())) == 0:
             content.rmdir()
         else:
             continue
@@ -164,18 +164,11 @@ def normalize(name):
 
 if __name__ == '__main__':
     p = Path(get_cmd_args())
-    im = []
-    vi = []
-    au = []
-    do = []
-    ar = []
-    un = []
     if p.is_dir():
-        all_files = find_all_files(p.iterdir(), im, vi, au, do, ar, un)
+        all_files = find_all_files(p.iterdir(), [], [], [], [], [], [])
         all_files = rename_files(all_files)
         new_dirs = make_dirs(p)
         new_files = move_files(all_files, new_dirs)
-        remove_empty_dirs(p.iterdir())
         remove_empty_dirs(p.iterdir())
         print(all_files)
     else:
