@@ -1,0 +1,4 @@
+build/
+dist/
+sort_dir.egg-info/
+__pycache__/

@@ -110,7 +110,7 @@ def normalize(name):
     return rx.sub('_', name.translate(map_cyr_to_latin))
 
 
-if __name__ == '__main__':
+def main():
     p = Path(get_cmd_args())
     if p.is_dir():
         all_files = find_all_files(p.iterdir(), [[], [], [], [], [], []])
@@ -118,6 +118,10 @@ if __name__ == '__main__':
         new_dirs = make_dirs(p)
         new_files = move_files(all_files, new_dirs)
         remove_empty_dirs(p.iterdir())
-        print(all_files)
+        print(new_files)
     else:
         print('It is not a directory , please insert a valid directory path')
+
+
+if __name__ == '__main__':
+    main()
