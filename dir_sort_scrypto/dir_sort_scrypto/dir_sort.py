@@ -118,7 +118,7 @@ def main():
         new_dirs = make_dirs(p)
         new_files = move_files(all_files, new_dirs)
         remove_empty_dirs(p.iterdir())
-        print(new_files)
+        print("Sorted files : \n ", new_files)
     else:
         print('It is not a directory , please insert a valid directory path')
 
