@@ -1,3 +1,4 @@
+from threading import Thread
 from pathlib import Path
 import sys
 import re
@@ -26,24 +27,27 @@ def check_file_extension(extension):
     return FOLDERS_NAMES[5]
 
 
-def find_all_files(path, files):
+def find_all_files(path, files, finding_files_threads):
     for content in path:
         if content.is_file():
             extension = check_file_extension(get_filename_and_extension(content)[1])
             files[FOLDERS_NAMES.index(extension)].append(content)
         elif content.name not in FOLDERS_NAMES:
-            inside_dirs = find_all_files(content.iterdir(), files)
-            files = inside_dirs
+            finding_files_threads.append(
+                Thread(
+                    target=find_all_files, args=(content.iterdir(), files, finding_files_threads)
+                )
+            )
+            finding_files_threads[-1].start()
+            finding_files_threads[-1].join()
     return files
 
 
-def make_dirs(path):
-    sort_folders = []
+def make_dirs(path, sort_folders):
     for folder_name in FOLDERS_NAMES:
         if check_is_dir_exist(path / folder_name) is False:
             ((path / folder_name).mkdir())
         sort_folders.append(check_is_dir_exist(path / folder_name))
-    return sort_folders
 
 
 def check_is_dir_exist(path):
@@ -83,7 +87,6 @@ def rename_files(files):
             filename = normalize(get_filename_and_extension(content)[0]) + get_filename_and_extension(content)[1]
             content.rename(content.parent / filename)
             files[files.index(category)][category.index(content)] = content.parent / filename
-    return files
 
 
 def remove_empty_dirs(path):
@@ -112,11 +115,17 @@ def normalize(name):
 
 def main():
     p = Path(get_cmd_args())
+    finding_files_threads = []
+    sort_folders = []
     if p.is_dir():
-        all_files = find_all_files(p.iterdir(), [[], [], [], [], [], []])
-        all_files = rename_files(all_files)
-        new_dirs = make_dirs(p)
-        new_files = move_files(all_files, new_dirs)
+        all_files = list(find_all_files(p.iterdir(), [[], [], [], [], [], []], finding_files_threads))
+        rename_files_thread = Thread(target=rename_files, args=(all_files,))
+        make_new_dirs_thread = Thread(target=make_dirs, args=(p, sort_folders))
+        rename_files_thread.start()
+        make_new_dirs_thread.start()
+        rename_files_thread.join()
+        make_new_dirs_thread.join()
+        new_files = move_files(all_files, sort_folders)
         remove_empty_dirs(p.iterdir())
         print("Sorted files : \n ", new_files)
     else:
