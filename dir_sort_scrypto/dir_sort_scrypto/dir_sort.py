@@ -3,14 +3,15 @@ from pathlib import Path
 import sys
 import re
 import shutil
+
 FOLDERS_NAMES = ('image', 'video', 'audio', 'document', 'archive', 'unknown')
 FILE_TYPES_EXTENSIONS = (
-                         ('.jpeg', '.jpg', '.png', '.svg'),
-                         ('.avi', '.mp4', '.mov', '.mkv'),
-                         ('.mp3', '.ogg', '.wav', '.amr'),
-                         ('.doc', '.docx', '.txt', '.pdf', '.xlsx', '.pptx'),
-                         ('.zip', '.gz', '.tar')
-                        )
+    ('.jpeg', '.jpg', '.png', '.svg'),
+    ('.avi', '.mp4', '.mov', '.mkv'),
+    ('.mp3', '.ogg', '.wav', '.amr'),
+    ('.doc', '.docx', '.txt', '.pdf', '.xlsx', '.pptx'),
+    ('.zip', '.gz', '.tar')
+)
 
 
 def get_cmd_args():
@@ -56,25 +57,22 @@ def check_is_dir_exist(path):
     return path.exists()
 
 
-def move_files(files, dirs):
-    for file_type in files:
-        for file_path in file_type:
-            file_path.replace(dirs[files.index(file_type)] / file_path.name)
-            files[files.index(file_type)][files[files.index(file_type)].index(file_path)] = \
-                dirs[files.index(file_type)] / file_path.name
-    for archive in files[4]:
-        path_to_archive_dir = dirs[4] / get_filename_and_extension(archive)[0]
+def move_files(files, file_type_index, dirs):
+    for file_path in files[file_type_index]:
+        file_path.replace(dirs[file_type_index] / file_path.name)
+        files[file_type_index][files[file_type_index].index(file_path)] = \
+            dirs[file_type_index] / file_path.name
+
+
+def unpack_archives(archives, archive_dir):
+    for archive in archives:
+        path_to_archive_dir = archive_dir / get_filename_and_extension(archive)[0]
         archive_path = path_to_archive_dir / archive.name
         path_to_archive_dir.mkdir()
         archive.replace(archive_path)
-        files[4][files[4].index(archive)] = path_to_archive_dir
-        unpack_archives(archive_path, path_to_archive_dir)
+        archives[archives.index(archive)] = path_to_archive_dir
+        shutil.unpack_archive(archive_path, path_to_archive_dir)
         archive_path.unlink()
-    return files
-
-
-def unpack_archives(archive, new_dir_path):
-    shutil.unpack_archive(archive, new_dir_path)
 
 
 def get_filename_and_extension(filename):
@@ -116,6 +114,7 @@ def normalize(name):
 def main():
     p = Path(get_cmd_args())
     finding_files_threads = []
+    moving_files_threads = []
     sort_folders = []
     if p.is_dir():
         all_files = list(find_all_files(p.iterdir(), [[], [], [], [], [], []], finding_files_threads))
@@ -125,9 +124,17 @@ def main():
         make_new_dirs_thread.start()
         rename_files_thread.join()
         make_new_dirs_thread.join()
-        new_files = move_files(all_files, sort_folders)
+        for file_type_index in range(len(FOLDERS_NAMES)):
+            moving_files_threads.append(
+                Thread(target=move_files, args=(all_files, file_type_index, sort_folders))
+            )
+            moving_files_threads[-1].start()
+        for this_thread in moving_files_threads:
+            if this_thread.is_alive():
+                this_thread.join()
+        unpack_archives(all_files[4], sort_folders[4])
         remove_empty_dirs(p.iterdir())
-        print("Sorted files : \n ", new_files)
+        print("Sorted files : \n ", all_files)
     else:
         print('It is not a directory , please insert a valid directory path')
 
