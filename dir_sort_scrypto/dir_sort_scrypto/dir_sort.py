@@ -3,6 +3,10 @@ from collections import Counter
 import sys
 import re
 import shutil
+import asyncio
+from aiopath import AsyncPath
+
+
 FOLDERS_NAMES = ('image', 'video', 'audio', 'document', 'archive', 'unknown')
 FILE_TYPES_EXTENSIONS = (
                          ('.jpeg', '.jpg', '.png', '.svg'),
@@ -38,19 +42,13 @@ def find_all_files(path, files):
     return files
 
 
-def make_dirs(path):
+async def make_dirs(path):
     sort_folders = []
     for folder_name in FOLDERS_NAMES:
-        if check_is_dir_exist(path / folder_name) is False:
-            ((path / folder_name).mkdir())
-        sort_folders.append(check_is_dir_exist(path / folder_name))
+        if not (path / folder_name).exists():
+            (path / folder_name).mkdir()
+        sort_folders.append(path / folder_name)
     return sort_folders
-
-
-def check_is_dir_exist(path):
-    if path.exists() is True:
-        return path
-    return path.exists()
 
 
 def move_files(files, dirs):
@@ -78,12 +76,12 @@ def get_filename_and_extension(filepath):
     return filepath.resolve().stem, filepath.suffix
 
 
-def normalize_filenames(files):
+async def normalize_filenames(files):
     filenames = []
     for category in files:
         filenames.append([])
         for content in category:
-            filename = normalize(get_filename_and_extension(content)[0]) + get_filename_and_extension(content)[1]
+            filename = await normalize(get_filename_and_extension(content)[0]) + get_filename_and_extension(content)[1]
             if filename in filenames[-1]:
                 filenames[-1].append(filename)
                 filename = f'{get_filename_and_extension(content)[0]}' \
@@ -91,7 +89,8 @@ def normalize_filenames(files):
                            f'{get_filename_and_extension(content)[1]}'
             else:
                 filenames[-1].append(filename)
-            content.rename(content.parent / filename)
+            await AsyncPath(content).rename(AsyncPath(content).parent / filename)
+            content = Path(content)
             files[files.index(category)][category.index(content)] = content.parent / filename
     return files
 
@@ -106,7 +105,7 @@ def remove_empty_dirs(path):
             continue
 
 
-def normalize(name):
+async def normalize(name):
     table_symbols = ('абвгґдеєжзиіїйклмнопрстуфхцчшщюяыэАБВГҐДЕЄЖЗИІЇЙКЛМНОПРСТУФХЦЧШЩЮЯЫЭьъЬЪ',
                      (
                          *u'abvhgde', 'ye', 'zh', *u'zyi', 'yi', *u'yklmnoprstuf', 'kh', 'ts',
@@ -120,12 +119,16 @@ def normalize(name):
     return rx.sub('_', name.translate(map_cyr_to_latin))
 
 
-def main():
+async def main():
     p = Path(get_cmd_args())
     if p.is_dir():
         all_files = find_all_files(p.iterdir(), [[], [], [], [], [], []])
-        all_files = normalize_filenames(all_files)
-        new_dirs = make_dirs(p)
+        rename_all_files = asyncio.create_task(normalize_filenames(all_files))
+        make_new_dirs = asyncio.create_task(make_dirs(p))
+        await rename_all_files
+        await make_new_dirs
+        new_dirs = make_new_dirs.result()
+        all_files = rename_all_files.result()
         new_files = move_files(all_files, new_dirs)
         remove_empty_dirs(p.iterdir())
         print("Sorted files : \n ", new_files)
@@ -134,4 +137,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    asyncio.run(main())
