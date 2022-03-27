@@ -1,4 +1,5 @@
 from pathlib import Path
+from collections import Counter
 import sys
 import re
 import shutil
@@ -73,14 +74,23 @@ def unpack_archives(archive, new_dir_path):
     shutil.unpack_archive(archive, new_dir_path)
 
 
-def get_filename_and_extension(filename):
-    return filename.resolve().stem, filename.suffix
+def get_filename_and_extension(filepath):
+    return filepath.resolve().stem, filepath.suffix
 
 
-def rename_files(files):
+def normalize_filenames(files):
+    filenames = []
     for category in files:
+        filenames.append([])
         for content in category:
             filename = normalize(get_filename_and_extension(content)[0]) + get_filename_and_extension(content)[1]
+            if filename in filenames[-1]:
+                filenames[-1].append(filename)
+                filename = f'{get_filename_and_extension(content)[0]}' \
+                           f'({Counter(filenames[-1])[filename] - 1})' \
+                           f'{get_filename_and_extension(content)[1]}'
+            else:
+                filenames[-1].append(filename)
             content.rename(content.parent / filename)
             files[files.index(category)][category.index(content)] = content.parent / filename
     return files
@@ -114,7 +124,7 @@ def main():
     p = Path(get_cmd_args())
     if p.is_dir():
         all_files = find_all_files(p.iterdir(), [[], [], [], [], [], []])
-        all_files = rename_files(all_files)
+        all_files = normalize_filenames(all_files)
         new_dirs = make_dirs(p)
         new_files = move_files(all_files, new_dirs)
         remove_empty_dirs(p.iterdir())
