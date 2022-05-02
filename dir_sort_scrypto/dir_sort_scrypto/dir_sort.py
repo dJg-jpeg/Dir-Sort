@@ -1,9 +1,8 @@
-from pathlib import Path
 from collections import Counter
 import sys
 import re
-import shutil
-import asyncio
+from shutil import unpack_archive
+from asyncio import create_task, run, gather
 from aiopath import AsyncPath
 
 
@@ -31,18 +30,18 @@ def check_file_extension(extension):
     return FOLDERS_NAMES[5]
 
 
-def find_all_files(path, files):
-    for content in path:
-        if content.is_file():
+async def find_all_files(path, files):
+    inner_folders = []
+    async for content in path:
+        if await content.is_dir():
+            inner_folders.append(create_task(find_all_files(content.iterdir(), files)))
+        elif content.name not in FOLDERS_NAMES:
             extension = check_file_extension(get_filename_and_extension(content)[1])
             files[FOLDERS_NAMES.index(extension)].append(content)
-        elif content.name not in FOLDERS_NAMES:
-            inside_dirs = find_all_files(content.iterdir(), files)
-            files = inside_dirs
-    return files
+    await gather(*inner_folders)
 
 
-async def make_dirs(path):
+def make_dirs(path):
     sort_folders = []
     for folder_name in FOLDERS_NAMES:
         if not (path / folder_name).exists():
@@ -51,10 +50,10 @@ async def make_dirs(path):
     return sort_folders
 
 
-def move_files(files, dirs):
+async def move_files(files, dirs):
     for file_type in files:
         for file_path in file_type:
-            file_path.replace(dirs[files.index(file_type)] / file_path.name)
+            await file_path.replace(dirs[files.index(file_type)] / file_path.name)
             files[files.index(file_type)][files[files.index(file_type)].index(file_path)] = \
                 dirs[files.index(file_type)] / file_path.name
     for archive in files[4]:
@@ -69,11 +68,11 @@ def move_files(files, dirs):
 
 
 def unpack_archives(archive, new_dir_path):
-    shutil.unpack_archive(archive, new_dir_path)
+    unpack_archive(archive, new_dir_path)
 
 
 def get_filename_and_extension(filepath):
-    return filepath.resolve().stem, filepath.suffix
+    return filepath.stem, filepath.suffix
 
 
 async def normalize_filenames(files):
@@ -81,7 +80,7 @@ async def normalize_filenames(files):
     for category in files:
         filenames.append([])
         for content in category:
-            filename = await normalize(get_filename_and_extension(content)[0]) + get_filename_and_extension(content)[1]
+            filename = normalize(get_filename_and_extension(content)[0]) + get_filename_and_extension(content)[1]
             if filename in filenames[-1]:
                 filenames[-1].append(filename)
                 filename = f'{get_filename_and_extension(content)[0]}' \
@@ -89,23 +88,22 @@ async def normalize_filenames(files):
                            f'{get_filename_and_extension(content)[1]}'
             else:
                 filenames[-1].append(filename)
-            await AsyncPath(content).rename(AsyncPath(content).parent / filename)
-            content = Path(content)
+            content = await AsyncPath(content).rename(AsyncPath(content).parent / filename)
             files[files.index(category)][category.index(content)] = content.parent / filename
     return files
 
 
-def remove_empty_dirs(path):
-    for content in path:
+async def remove_empty_dirs(path):
+    async for content in path:
         if content.is_dir() is True and len(list(content.iterdir())) > 0:
-            remove_empty_dirs(content.iterdir())
+            await remove_empty_dirs(content.iterdir())
         if content.is_dir() is True and len(list(content.iterdir())) == 0:
             content.rmdir()
         else:
             continue
 
 
-async def normalize(name):
+def normalize(name):
     table_symbols = ('абвгґдеєжзиіїйклмнопрстуфхцчшщюяыэАБВГҐДЕЄЖЗИІЇЙКЛМНОПРСТУФХЦЧШЩЮЯЫЭьъЬЪ',
                      (
                          *u'abvhgde', 'ye', 'zh', *u'zyi', 'yi', *u'yklmnoprstuf', 'kh', 'ts',
@@ -120,21 +118,23 @@ async def normalize(name):
 
 
 async def main():
-    p = Path(get_cmd_args())
-    if p.is_dir():
-        all_files = find_all_files(p.iterdir(), [[], [], [], [], [], []])
-        rename_all_files = asyncio.create_task(normalize_filenames(all_files))
-        make_new_dirs = asyncio.create_task(make_dirs(p))
+    p = AsyncPath(get_cmd_args())
+    if await p.is_dir():
+        all_files = [[], [], [], [], [], []]
+        find_files = create_task(find_all_files(p.iterdir(), all_files))
+        await find_files
+        rename_all_files = create_task(normalize_filenames(all_files))
+        new_dirs = make_dirs(p)
+        move_all_files = create_task(move_files(all_files, new_dirs))
         await rename_all_files
-        await make_new_dirs
-        new_dirs = make_new_dirs.result()
-        all_files = rename_all_files.result()
-        new_files = move_files(all_files, new_dirs)
-        remove_empty_dirs(p.iterdir())
-        print("Sorted files : \n ", new_files)
+        await move_all_files
+        all_files = move_all_files.result()
+        remove_empty = create_task(remove_empty_dirs(p.iterdir()))
+        await remove_empty
+        print("Sorted files : \n ", all_files)
     else:
         print('It is not a directory , please insert a valid directory path')
 
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    run(main())
