@@ -97,11 +97,9 @@ async def normalize_filenames(files):
 
 
 async def remove_empty_dirs(path):
-    inner_folders = []
     async for content in path:
         if await content.is_dir() and content.name not in FOLDERS_NAMES:
             rmtree(content)
-    await gather(*inner_folders)
 
 
 def normalize(name):
