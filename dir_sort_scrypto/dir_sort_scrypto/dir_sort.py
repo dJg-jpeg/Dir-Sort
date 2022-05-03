@@ -1,7 +1,7 @@
 from collections import Counter
 import sys
 import re
-from shutil import unpack_archive
+from shutil import unpack_archive, rmtree
 from asyncio import create_task, run, gather
 from aiopath import AsyncPath
 
@@ -41,21 +41,23 @@ async def find_all_files(path, files):
     await gather(*inner_folders)
 
 
-def make_dirs(path):
+async def make_dirs(path):
     sort_folders = []
     for folder_name in FOLDERS_NAMES:
-        if not (path / folder_name).exists():
-            (path / folder_name).mkdir()
-        sort_folders.append(path / folder_name)
+        new_folder = path / folder_name
+        if await new_folder.exists():
+            sort_folders.append(path / folder_name)
+            continue
+        await (path / folder_name).mkdir()
     return sort_folders
 
 
 async def move_files(files, dirs):
     for file_type in files:
         for file_path in file_type:
-            await file_path.replace(dirs[files.index(file_type)] / file_path.name)
             files[files.index(file_type)][files[files.index(file_type)].index(file_path)] = \
                 dirs[files.index(file_type)] / file_path.name
+            await file_path.replace(dirs[files.index(file_type)] / file_path.name)
     for archive in files[4]:
         path_to_archive_dir = dirs[4] / get_filename_and_extension(archive)[0]
         archive_path = path_to_archive_dir / archive.name
@@ -77,6 +79,7 @@ def get_filename_and_extension(filepath):
 
 async def normalize_filenames(files):
     filenames = []
+    rename_tasks = []
     for category in files:
         filenames.append([])
         for content in category:
@@ -88,19 +91,17 @@ async def normalize_filenames(files):
                            f'{get_filename_and_extension(content)[1]}'
             else:
                 filenames[-1].append(filename)
-            content = await AsyncPath(content).rename(AsyncPath(content).parent / filename)
             files[files.index(category)][category.index(content)] = content.parent / filename
-    return files
+            rename_tasks.append(create_task(AsyncPath(content).rename(AsyncPath(content).parent / filename)))
+    await gather(*rename_tasks)
 
 
 async def remove_empty_dirs(path):
+    inner_folders = []
     async for content in path:
-        if content.is_dir() is True and len(list(content.iterdir())) > 0:
-            await remove_empty_dirs(content.iterdir())
-        if content.is_dir() is True and len(list(content.iterdir())) == 0:
-            content.rmdir()
-        else:
-            continue
+        if await content.is_dir() and content.name not in FOLDERS_NAMES:
+            rmtree(content)
+    await gather(*inner_folders)
 
 
 def normalize(name):
@@ -124,7 +125,9 @@ async def main():
         find_files = create_task(find_all_files(p.iterdir(), all_files))
         await find_files
         rename_all_files = create_task(normalize_filenames(all_files))
-        new_dirs = make_dirs(p)
+        make_new_folders = create_task(make_dirs(p))
+        await make_new_folders
+        new_dirs = make_new_folders.result()
         move_all_files = create_task(move_files(all_files, new_dirs))
         await rename_all_files
         await move_all_files
